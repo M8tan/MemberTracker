@@ -1,36 +1,17 @@
 ﻿Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-try{
-Import-Module activedirectory -ErrorAction Stop
-} catch {
-([System.Windows.Forms.MessageBox]::Show("$($_.exception.message)", "Oops!", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error))
-return
-}
+Import-Module activedirectory
 $Tooltip = new-object System.Windows.Forms.ToolTip
 $Tooltip.AutoPopDelay = 5000
 $Tooltip.InitialDelay = 500
 $Tooltip.ReshowDelay = 200
 $Tooltip.ShowAlways = $true
 
-$FolderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$FolderDialog.Description = "Choose where to save the results"
-$FolderDialog.ShowNewFolderButton = $true
-
 $Domains = (Get-ADForest).Domains
 $OrderedDomains = ""
-foreach($Domain in $Domains){ 
+foreach($Domain in $Domains){
 $OrderedDomains += "$($Domain)`r`n"
 }
-
-$script:Found = $false
-function Update-Export(){
-if ($script:Found){
-$MTExportButton.Enabled = $true
-} else {
-$MTExportButton.Enabled = $false
-}
-}
-
 $MTForm = New-Object System.Windows.Forms.Form
 $MTForm.Text = "Member Tracker" # - current operator: $($env:USERNAME)
 $MTForm.Size = New-Object System.Drawing.Size(500,350)
@@ -74,14 +55,6 @@ $MTButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.Fo
 $MTButton.Width = 200
 $Tooltip.SetToolTip($MTButton, "Searches for the user inside of the group")
 
-$MTExportButton = New-Object System.Windows.Forms.Button
-$MTExportButton.Text = "Export"
-$MTExportButton.Location = New-Object System.Drawing.Point(320,65)
-$MTExportButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTExportButton.Width = 100
-$MTExportButton.Enabled = $Found
-$Tooltip.SetToolTip($MTExportButton, "Searches for the user inside of the group")
-
 $OutputTB = New-Object System.Windows.Forms.TextBox
 $OutputTB.Location = New-Object System.Drawing.Point(20,100)
 $OutputTB.Size = New-Object System.Drawing.Size(440,180)
@@ -95,13 +68,13 @@ function Get-ADUserGroupPath {
         [Parameter(Mandatory)]
         [string]$UserSamAccountName,
         [Parameter(Mandatory)]
-        [string]$GroupDN,
-        [Parameter(Mandatory)]
-        [Array]$Domains
+        [string]$GroupDN
     )
 
+    $AllDomains = (Get-ADForest).Domains
+
     $User = $null
-    foreach ($Domain in $Domains) {
+    foreach ($Domain in $AllDomains) {
         try {
             $User = Get-ADUser -Identity $UserSamAccountName -Server $Domain -ErrorAction Stop
             if ($User) { break }
@@ -157,8 +130,6 @@ function Get-ADUserGroupPath {
 
 
 $MTInfoButton.add_click({
-$script:Found = $false
-Update-Export
 $OutputTB.Clear()
 $OutputTB.AppendText(@"
 Instructions:
@@ -170,20 +141,15 @@ Instructions:
 })
 
 $MTButton.Add_Click({
-$script:Found = $false
-Update-Export
-$MTButton.Enabled = $false
     $OutputTB.Text = ""
     $RawUsername = $MTUserInput.Text.Trim()
     $RawGroupName = $MTGroupInput.Text.Trim()
     if ([string]::IsNullOrWhiteSpace($RawUsername)) {
         $OutputTB.AppendText("Username not specified :)`r`n")
-        $MTButton.Enabled = $true
         return
     }
     if ([string]::IsNullOrWhiteSpace($RawGroupName)) {
         $OutputTB.AppendText("Group not specified :)`r`n")
-        $MTButton.Enabled = $true
         return
     }
     
@@ -203,7 +169,6 @@ $MTButton.Enabled = $false
     }
     if (-not $UserFullObject){
     $OutputTB.Text = "No user named $($RawUsername) in all of: `r`n$($OrderedDomains) :( `r`n"
-    $MTButton.Enabled = $true
     return
     }
     
@@ -222,8 +187,7 @@ $MTButton.Enabled = $false
     }
     }
     if (-not $GroupFullObject){
-    $OutputTB.Text = "No group named $($RawGroupName) in all of: `r`n$($OrderedDomains) :( `r`n"
-    $MTButton.Enabled = $true
+    $OutputTB.Text = "No group named $($RawGroupname) in all of: `r`n$($OrderedDomains) :( `r`n"
     return
     }
     $OutputTB.AppendText("`r`nSearching for group membership... `r`n")
@@ -231,50 +195,27 @@ $MTButton.Enabled = $false
     $UserSam = $UserFullObject.SamAccountName
     $GroupDN = $GroupFullObject.DistinguishedName
     
-    $script:Paths = Get-ADUserGroupPath -UserSamAccountName $UserSam -GroupDN $GroupDN -Domains $Domains
-    $script:UsernameFE = $UserFullObject.SamAccountName
-    $script:GroupnameFE = $GroupFullObject.SamAccountName
+    $Paths = Get-ADUserGroupPath -UserSamAccountName $UserSam -GroupDN $GroupDN
 
-    if ($script:Paths -and $script:Paths.count -gt 0) {
+    if ($Paths -and $Paths.count -gt 0) {
         $SerialNum = 1
-        if ($script:Paths.count -eq 1) {$NumPresentation = "$($script:Paths.count) path:"} else {$NumPresentation = "$($script:Paths.count) paths:"} 
+        if ($Paths.count -eq 1) {$NumPresentation = "$($Paths.count) path:"} else {$NumPresentation = "$($Paths.count) paths:"} 
         $OutputTB.Text = "User is a member via $($NumPresentation)`r`n`r`n"
-        foreach($Path in $script:Paths){
+        foreach($Path in $Paths){
             $OutputTB.AppendText($SerialNum.ToString() + ". " + ($Path -join " → ") + " → $($UserFullObject.cn)" + "`r`n`r`n")
             $SerialNum++
         }
-        $script:Found = $true
-        Update-Export
+        
     } else {
         $OutputTB.Text = "User is NOT a member of the group."
+       
     }
-    $MTButton.Enabled = $true
 
     
     
 })
 
-$MTExportButton.add_click({
-    $OutputTB.Text = ""
-    if($FolderDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){
-    $ExportDir = $FolderDialog.SelectedPath
-    $ExportFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$((Get-Date).ToString("HHmmssddMMyyyy")).txt"
-    $ExportPath = Join-Path $ExportDir $ExportFileName
-    $OutputTB.Text = "Saving results to $($ExportPath)`r`n"
-    $FormattedPaths = ""
-    foreach ($Path in $script:Paths){
-    $FormattedPaths += (($Path -join " → ") + " → $($script:UsernameFE)" + "`r`n`r`n")
-    }
-    try {
-    Set-Content -Path $ExportPath -Value $FormattedPaths -Encoding UTF8 -Confirm:$false -ErrorAction Stop
-    $OutputTB.AppendText("Done!")
-    } catch {
-    $OutputTB.AppendText("Failed - $($_.exception.message)")
-    }
-    } else {
-    $OutputTB.Text = "Fine"
-    }
-})
+
 
 $MTForm.Controls.AddRange(@(
     $UsernameLabel,
@@ -283,7 +224,6 @@ $MTForm.Controls.AddRange(@(
     $MTGroupInput,
     $MTInfoButton,
     $MTButton,
-    $MTExportButton,
     $OutputTB
 ))
 
