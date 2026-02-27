@@ -18,10 +18,10 @@ It is designed for large enterprise environments where understanding how users i
 ---
 
 ## Technologies
-- **PowerShell** – core automation and AD integration  
+- **PowerShell** – Core automation and AD integration  
 - **System.Windows.Forms** – GUI interface  
-- **ActiveDirectory module** – user and group querying  
-- **Recursive algorithms** – nested group resolution  
+- **ActiveDirectory module** – User and group querying  
+- **Recursive algorithms** – Nested group resolution  
 
 ---
 
