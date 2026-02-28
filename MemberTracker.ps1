@@ -16,7 +16,12 @@ $FolderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $FolderDialog.Description = "Choose where to save the results"
 $FolderDialog.ShowNewFolderButton = $true
 
+try{
 $Domains = (Get-ADForest).Domains
+} catch {
+([System.Windows.Forms.MessageBox]::Show("$($_.exception.message)", "Oops!", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error))
+return
+}
 $OrderedDomains = ""
 foreach($Domain in $Domains){ 
 $OrderedDomains += "$($Domain)`r`n"
