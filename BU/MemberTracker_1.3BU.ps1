@@ -263,41 +263,18 @@ $MTExportButton.add_click({
     $OutputTB.Text = ""
     if($FolderDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){
     $ExportDir = $FolderDialog.SelectedPath
-    $TimeStamp = ((Get-Date).ToString("HHmmssddMMyyyy"))
-    $ExportTXTFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$($TimeStamp).txt"
-    $ExportTXTPath = Join-Path $ExportDir $ExportTXTFileName
-    $ExportJSONFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$($TimeStamp).json"
-    $ExportJSONPath = Join-Path $ExportDir $ExportJSONFileName
-    $TXTFormattedPaths = ""
-    
-    $ExportJSONObject = [pscustomobject]@{
-        User = $script:UsernameFE
-        Group = $script:GroupnameFE
-        ExportTime = $TimeStamp
-        PathCount = if($script:Paths){$script:Paths.Count} else {0}
-        Paths = @()
-    }
-    
+    $ExportFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$((Get-Date).ToString("HHmmssddMMyyyy")).txt"
+    $ExportPath = Join-Path $ExportDir $ExportFileName
+    $OutputTB.Text = "Saving results to $($ExportPath)`r`n"
+    $FormattedPaths = ""
     foreach ($Path in $script:Paths){
-    $TXTFormattedPaths += (($Path -join " → ") + " → $($script:UsernameFE)" + "`r`n`r`n")
-    $ExportJSONObject.Paths += ,$Path
+    $FormattedPaths += (($Path -join " → ") + " → $($script:UsernameFE)" + "`r`n`r`n")
     }
-
-    $OutputTB.Text = "Saving results to $($ExportTXTPath)`r`n"
-
     try {
-    Set-Content -Path $ExportTXTPath -Value $TXTFormattedPaths -Encoding UTF8 -Confirm:$false -ErrorAction Stop
-    $OutputTB.AppendText("Done!`r`n")
+    Set-Content -Path $ExportPath -Value $FormattedPaths -Encoding UTF8 -Confirm:$false -ErrorAction Stop
+    $OutputTB.AppendText("Done!")
     } catch {
-    $OutputTB.AppendText("Failed - $($_.exception.message)`r`n")
-    }
-    $OutputTB.AppendText("Saving results to $($ExportJSONPath)`r`n")
-    try {
-    $JSONData = $ExportJSONObject | ConvertTo-Json -Depth 10
-    Set-Content -Path $ExportJSONPath -Value $JSONData -Encoding UTF8 -Confirm:$false -ErrorAction Stop
-    $OutputTB.AppendText("Done!`r`n")
-    } catch {
-    $OutputTB.AppendText("Failed - $($_.exception.message)`r`n")
+    $OutputTB.AppendText("Failed - $($_.exception.message)")
     }
     } else {
     $OutputTB.Text = "Fine"
