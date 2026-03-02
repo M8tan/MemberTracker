@@ -283,7 +283,7 @@ $MTExportButton.add_click({
     $ExportJSONObject.Paths += ,$Path
     }
 
-    $OutputTB.Text = "Saving results to $($ExportTXTPath)`r`n"
+    $OutputTB.Text = "Saving results to $($ExportTXTPath)...`r`n"
 
     try {
     Set-Content -Path $ExportTXTPath -Value $TXTFormattedPaths -Encoding UTF8 -Confirm:$false -ErrorAction Stop
@@ -291,7 +291,7 @@ $MTExportButton.add_click({
     } catch {
     $OutputTB.AppendText("Failed - $($_.exception.message)`r`n")
     }
-    $OutputTB.AppendText("Saving results to $($ExportJSONPath)`r`n")
+    $OutputTB.AppendText("Saving results to $($ExportJSONPath)...`r`n")
     try {
     $JSONData = $ExportJSONObject | ConvertTo-Json -Depth 10
     Set-Content -Path $ExportJSONPath -Value $JSONData -Encoding UTF8 -Confirm:$false -ErrorAction Stop
