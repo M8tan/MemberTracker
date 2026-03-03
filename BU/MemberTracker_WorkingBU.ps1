@@ -93,23 +93,6 @@ $MTExportButton.Width = 100
 $MTExportButton.Enabled = $Found
 $Tooltip.SetToolTip($MTExportButton, "Searches for the user inside of the group")
 
-$MTTXTLink = New-Object System.Windows.Forms.LinkLabel
-$MTTXTLink.Text = "TXT"
-$MTTXTLink.Location = New-Object System.Drawing.Point(320,65)
-$MTTXTLink.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTTXTLink.Width = 50
-$Tooltip.SetToolTip($MTTXTLink, "Searches for the user inside of the group")
-
-$MTJSONLink = New-Object System.Windows.Forms.LinkLabel
-$MTJSONLink.Text = "JSON"
-$MTJSONLink.Location = New-Object System.Drawing.Point(380,65)
-$MTJSONLink.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTJSONLink.Width = 50
-$Tooltip.SetToolTip($MTJSONLink, "Searches for the user inside of the group")
-
-$MTTXTLink.Hide()
-$MTJSONLink.Hide()
-
 $OutputTB = New-Object System.Windows.Forms.TextBox
 $OutputTB.Location = New-Object System.Drawing.Point(20,100)
 $OutputTB.Size = New-Object System.Drawing.Size(440,180)
@@ -185,9 +168,6 @@ function Get-ADUserGroupPath {
 
 
 $MTInfoButton.add_click({
-$MTTXTLink.Hide()
-$MTJSONLink.Hide()
-$MTExportButton.Show()
 $script:Found = $false
 Update-Export
 $OutputTB.Clear()
@@ -201,9 +181,6 @@ Instructions:
 })
 
 $MTButton.Add_Click({
-$MTTXTLink.Hide()
-$MTJSONLink.Hide()
-$MTExportButton.Show()
 $script:Found = $false
 Update-Export
 $MTButton.Enabled = $false
@@ -289,17 +266,14 @@ $MTButton.Enabled = $false
 })
 
 $MTExportButton.add_click({
-    $MTTXTLink.Hide()
-    $MTJSONLink.Hide()
-    $MTExportButton.Show()
     $OutputTB.Text = ""
     if($FolderDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){
     $ExportDir = $FolderDialog.SelectedPath
     $TimeStamp = ((Get-Date).ToString("HHmmssddMMyyyy"))
     $ExportTXTFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$($TimeStamp).txt"
-    $script:ExportTXTPath = Join-Path $ExportDir $ExportTXTFileName
+    $ExportTXTPath = Join-Path $ExportDir $ExportTXTFileName
     $ExportJSONFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$($TimeStamp).json"
-    $script:ExportJSONPath = Join-Path $ExportDir $ExportJSONFileName
+    $ExportJSONPath = Join-Path $ExportDir $ExportJSONFileName
     $TXTFormattedPaths = ""
     
     $ExportJSONObject = [pscustomobject]@{
@@ -315,44 +289,25 @@ $MTExportButton.add_click({
     $ExportJSONObject.Paths += ,$Path
     }
 
-    $OutputTB.Text = "Saving results to $($script:ExportTXTPath)...`r`n"
+    $OutputTB.Text = "Saving results to $($ExportTXTPath)...`r`n"
 
     try {
-    Set-Content -Path $script:ExportTXTPath -Value $TXTFormattedPaths -Encoding UTF8 -Confirm:$false -ErrorAction Stop
+    Set-Content -Path $ExportTXTPath -Value $TXTFormattedPaths -Encoding UTF8 -Confirm:$false -ErrorAction Stop
     $OutputTB.AppendText("Done!`r`n")
     } catch {
     $OutputTB.AppendText("Failed - $($_.exception.message)`r`n")
     }
-    $OutputTB.AppendText("Saving results to $($script:ExportJSONPath)...`r`n")
+    $OutputTB.AppendText("Saving results to $($ExportJSONPath)...`r`n")
     try {
     $JSONData = $ExportJSONObject | ConvertTo-Json -Depth 10
-    Set-Content -Path $script:ExportJSONPath -Value $JSONData -Encoding UTF8 -Confirm:$false -ErrorAction Stop
+    Set-Content -Path $ExportJSONPath -Value $JSONData -Encoding UTF8 -Confirm:$false -ErrorAction Stop
     $OutputTB.AppendText("Done!`r`n")
     } catch {
     $OutputTB.AppendText("Failed - $($_.exception.message)`r`n")
     }
-    $MTExportButton.Hide()
-    $MTTXTLink.Show()
-    $MTJSONLink.Show()
     } else {
     $OutputTB.Text = "Fine"
     }
-})
-
-$MTTXTLink.add_linkclicked({
-try{
-Start-Process -FilePath $script:ExportTXTPath -ErrorAction Stop
-} catch {
-Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
-}
-})
-
-$MTJSONLink.add_linkclicked({
-try{
-Start-Process -FilePath $script:ExportJSONPath -ErrorAction Stop
-} catch {
-Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
-}
 })
 
 $MTForm.Controls.AddRange(@(
@@ -363,8 +318,6 @@ $MTForm.Controls.AddRange(@(
     $MTInfoButton,
     $MTButton,
     $MTExportButton,
-    $MTTXTLink,
-    $MTJSONLink,
     $OutputTB
 ))
 
