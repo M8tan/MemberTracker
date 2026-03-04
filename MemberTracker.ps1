@@ -13,6 +13,17 @@ Import-Module activedirectory -ErrorAction Stop
 } catch {
 Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
 }
+
+$AppState = [pscustomobject]@{
+    User = $null
+    Group = $null
+    Paths = @()
+    ExportPaths = @{
+        Txt = $null
+        Json = $null
+    }
+}
+
 $Tooltip = new-object System.Windows.Forms.ToolTip
 $Tooltip.AutoPopDelay = 5000
 $Tooltip.InitialDelay = 500
@@ -31,15 +42,6 @@ Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
 $OrderedDomains = ""
 foreach($Domain in $Domains){ 
 $OrderedDomains += "$($Domain)`r`n"
-}
-
-$script:Found = $false
-function Update-Export(){
-if ($script:Found){
-$MTExportButton.Enabled = $true
-} else {
-$MTExportButton.Enabled = $false
-}
 }
 
 $MTForm = New-Object System.Windows.Forms.Form
@@ -107,6 +109,8 @@ $MTJSONLink.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.
 $MTJSONLink.Width = 50
 $Tooltip.SetToolTip($MTJSONLink, "Searches for the user inside of the group")
 
+$MTTXTLink.LinkVisited = $false
+$MTJSONLink.LinkVisited = $false
 $MTTXTLink.Hide()
 $MTJSONLink.Hide()
 
@@ -118,24 +122,21 @@ $OutputTB.ScrollBars = "Vertical"
 $OutputTB.ReadOnly = $true
 $OutputTB.Font = New-Object System.Drawing.font("arial", 12,  [System.Drawing.FontStyle]::Bold)
 
+function Set-UIBusy{
+    param([bool]$Busy)
+    $MTInfoButton.Enabled = -not $Busy
+    $MTButton.Enabled = -not $Busy
+}
+
 function Get-ADUserGroupPath {
     param(
         [Parameter(Mandatory)]
-        [string]$UserSamAccountName,
+        [string]$UserDN,
         [Parameter(Mandatory)]
         [string]$GroupDN,
         [Parameter(Mandatory)]
         [Array]$Domains
     )
-
-    $User = $null
-    foreach ($Domain in $Domains) {
-        try {
-            $User = Get-ADUser -Identity $UserSamAccountName -Server $Domain -ErrorAction Stop
-            if ($User) { break }
-        } catch {}
-    }
-    if (-not $User) { return $null }
 
     function FindPathRecursive {
     param($GroupDN, $UserDN, $CheckedGroups)
@@ -179,17 +180,18 @@ function Get-ADUserGroupPath {
 }
 
 
-    return FindPathRecursive -GroupDN $GroupDN -UserDN $User.DistinguishedName -CheckedGroups @()
+    return FindPathRecursive -GroupDN $GroupDN -UserDN $UserDN -CheckedGroups @()
 }
 
 
 
 $MTInfoButton.add_click({
+$MTTXTLink.LinkVisited = $false
+$MTJSONLink.LinkVisited = $false
 $MTTXTLink.Hide()
 $MTJSONLink.Hide()
 $MTExportButton.Show()
-$script:Found = $false
-Update-Export
+$MTExportButton.Enabled = $AppState.Paths.count -gt 0
 $OutputTB.Clear()
 $OutputTB.AppendText(@"
 Instructions:
@@ -200,148 +202,157 @@ Instructions:
 "@)
 })
 
-$MTButton.Add_Click({
-$MTTXTLink.Hide()
-$MTJSONLink.Hide()
-$MTExportButton.Show()
-$script:Found = $false
-Update-Export
-$MTButton.Enabled = $false
-    $OutputTB.Text = ""
-    $RawUsername = $MTUserInput.Text.Trim()
-    $RawGroupName = $MTGroupInput.Text.Trim()
-    if ([string]::IsNullOrWhiteSpace($RawUsername)) {
-        $OutputTB.AppendText("Username not specified :)`r`n")
-        $MTButton.Enabled = $true
-        return
-    }
-    if ([string]::IsNullOrWhiteSpace($RawGroupName)) {
-        $OutputTB.AppendText("Group not specified :)`r`n")
-        $MTButton.Enabled = $true
-        return
-    }
-    
+function Validate-User{
+    [CmdletBinding()]
+    param(
+    [string]$Username,
+    [string[]]$Domains
+    )
+
     $UserFullObject = $null
     
     foreach($Domain in $Domains){
     
     try {
-        $UserFullObject = Get-ADUser -Identity $RawUsername -Server $Domain -Properties * -ErrorAction Stop
-        if ($UserFullObject){
-        $OutputTB.AppendText("Found $($UserFullObject.cn) - $($UserFullObject.title) in: $($Domain) `r`n")
-        break
-        }
-    } catch {
-        
-    }
+        $UserFullObject = Get-ADUser -Identity $Username -Server $Domain -Properties * -ErrorAction Stop
+        if ($UserFullObject){return $UserFullObject}
+    } catch {}
     }
     if (-not $UserFullObject){
-    $OutputTB.Text = "No user named $($RawUsername) in all of: `r`n$($OrderedDomains) :( `r`n"
-    $MTButton.Enabled = $true
-    return
-    }
-    
+        throw "User $($Username) not found"
+    }  
+}
+
+function Validate-Group{
+    [CmdletBinding()]
+    param(
+    [string]$Groupname,
+    [string[]]$Domains
+    )
+
     $GroupFullObject = $null
-    
     foreach($Domain in $Domains){
-    
     try {
-        $GroupFullObject = Get-ADGroup -Identity $RawGroupName -Properties * -Server $Domain -ErrorAction Stop
+        $GroupFullObject = Get-ADGroup -Identity $Groupname -Properties * -Server $Domain -ErrorAction Stop
         if ($GroupFullObject){
-        $OutputTB.AppendText("Found $($GroupFullObject.cn) in: $($Domain) `r`n")
-        break
+        return $GroupFullObject
         }
-    } catch {
-        
-    }
+    } catch {}
     }
     if (-not $GroupFullObject){
-    $OutputTB.Text = "No group named $($RawGroupName) in all of: `r`n$($OrderedDomains) :( `r`n"
-    $MTButton.Enabled = $true
-    return
-    }
-    $OutputTB.AppendText("`r`nSearching for group membership... `r`n")
-    $OutputTB.Clear()
-    $UserSam = $UserFullObject.SamAccountName
-    $GroupDN = $GroupFullObject.DistinguishedName
-    
-    $script:Paths = Get-ADUserGroupPath -UserSamAccountName $UserSam -GroupDN $GroupDN -Domains $Domains
-    $script:UsernameFE = $UserFullObject.SamAccountName
-    $script:GroupnameFE = $GroupFullObject.SamAccountName
+        throw "Group $($Groupname) not found"
+    } 
+}
 
-    if ($script:Paths -and $script:Paths.count -gt 0) {
+$MTButton.Add_Click({
+$MTTXTLink.LinkVisited = $false
+$MTJSONLink.LinkVisited = $false
+$MTTXTLink.Hide()
+$MTJSONLink.Hide()
+$MTExportButton.Show()
+
+$MTExportButton.Enabled = $AppState.Paths.count -gt 0
+Set-UIBusy -Busy $true
+$OutputTB.Clear()
+try{
+$AppState.Paths = @()
+$AppState.User = $null
+$AppState.Group = $null
+$RawUsername = $MTUserInput.Text.Trim()
+$RawGroupName = $MTGroupInput.Text.Trim()
+if ([string]::IsNullOrWhiteSpace($RawUsername)) {
+        throw "Username not specified"
+    }
+    if ([string]::IsNullOrWhiteSpace($RawGroupName)) {
+        throw "Group not specified"
+    }
+$User = Validate-User -Username $RawUsername -Domains $Domains -ErrorAction Stop
+$Group = Validate-Group -Groupname $RawGroupName -Domains $Domains -ErrorAction Stop
+$OutputTB.AppendText("Found $($User.name) and $($Group.name),`r`nSearching for group membership... `r`n")
+    
+    $AppState.User = $User
+    $AppState.Group = $Group
+    $AppState.Paths = Get-ADUserGroupPath -UserDN $User.DistinguishedName -GroupDN $Group.DistinguishedName -Domains $Domains
+
+    
+
+    if ($AppState.Paths.count -gt 0) {
         $SerialNum = 1
-        if ($script:Paths.count -eq 1) {$NumPresentation = "$($script:Paths.count) path:"} else {$NumPresentation = "$($script:Paths.count) paths:"} 
+        if ($AppState.Paths.count -eq 1) {$NumPresentation = "$($AppState.Paths.count) path:"} else {$NumPresentation = "$($AppState.Paths.count) paths:"} 
         $OutputTB.Text = "User is a member via $($NumPresentation)`r`n`r`n"
-        foreach($Path in $script:Paths){
-            $OutputTB.AppendText($SerialNum.ToString() + ". " + ($Path -join " → ") + " → $($UserFullObject.cn)" + "`r`n`r`n")
+        foreach($Path in $AppState.Paths){
+            $OutputTB.AppendText($SerialNum.ToString() + ". " + ($Path -join " → ") + " → $($AppState.User.cn)" + "`r`n`r`n")
             $SerialNum++
         }
-        $script:Found = $true
-        Update-Export
     } else {
-        $OutputTB.Text = "User is NOT a member of the group."
+        $OutputTB.Text = "User is not a member of the group."
     }
-    $MTButton.Enabled = $true
-
-    
+    $MTExportButton.Enabled = $AppState.Paths.count -gt 0
+} catch {
+$OutputTB.Text = $_.exception.message 
+} finally {
+Set-UIBusy -Busy $false
+}    
     
 })
 
-$MTExportButton.add_click({
-    $MTTXTLink.Hide()
-    $MTJSONLink.Hide()
-    $MTExportButton.Show()
-    $OutputTB.Text = ""
-    if($FolderDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){
-    $ExportDir = $FolderDialog.SelectedPath
+function Export-Memberships{
+    [cmdletbinding()]
+    param(
+        [parameter(mandatory)][pscustomobject]$State,
+        [parameter(mandatory)][string]$ExportDir
+    )
+    if (-not $State.Paths -or $State.Paths.count -eq 0){
+        throw "No paths to export"
+    }
     $TimeStamp = ((Get-Date).ToString("HHmmssddMMyyyy"))
-    $ExportTXTFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$($TimeStamp).txt"
-    $script:ExportTXTPath = Join-Path $ExportDir $ExportTXTFileName
-    $ExportJSONFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$($TimeStamp).json"
-    $script:ExportJSONPath = Join-Path $ExportDir $ExportJSONFileName
-    $TXTFormattedPaths = ""
-    
-    $ExportJSONObject = [pscustomobject]@{
-        User = $script:UsernameFE
-        Group = $script:GroupnameFE
+    $Basename = "{0}_{1}_{2}" -f $State.User.SamAccountName, $State.Group.SamAccountName, $TimeStamp
+    $TxtPath = Join-Path $ExportDir "$($Basename).txt"
+    $JsonPath = Join-Path $ExportDir "$($Basename).json"
+    $TxtContent = foreach ($Path in $State.Paths){
+        ($Path -join " → ") + " → $($State.User.cn)" 
+    }
+    Set-Content -Path $TxtPath -Value ($TxtContent -join "`r`n`r`n") -Encoding UTF8 -ErrorAction Stop
+    $JsonContent = [pscustomobject]@{
+        User = $State.User.SamAccountName
+        Group = $State.Group.SamAccountName
         ExportTime = $TimeStamp
-        PathCount = if($script:Paths){$script:Paths.Count} else {0}
-        Paths = @()
+        PathCount = $State.Paths.count
+        Paths = $State.Paths
     }
-    
-    foreach ($Path in $script:Paths){
-    $TXTFormattedPaths += (($Path -join " → ") + " → $($script:UsernameFE)" + "`r`n`r`n")
-    $ExportJSONObject.Paths += ,$Path
+    $JsonContent | ConvertTo-Json -Depth 10 | Set-Content -Path $JsonPath -Encoding UTF8 -ErrorAction Stop
+    return @{
+        Txt = $TxtPath
+        Json = $JsonPath
+    }
+}
+
+$MTExportButton.add_click({
+    Set-UIBusy -Busy $true
+    $OutputTB.Clear()
+
+    try{
+        if($FolderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){return}
+        $ExportDir = $FolderDialog.SelectedPath
+        $Result = Export-Memberships -State $AppState -ExportDir $ExportDir
+        $AppState.ExportPaths.Txt = $Result.Txt
+        $AppState.ExportPaths.Json = $Result.Json
+        $OutputTB.AppendText("Files saved successfully`r`n")
+        $MTExportButton.Hide()
+        $MTTXTLink.Show()
+        $MTJSONLink.Show()
+    } catch {
+        $OutputTB.Text = $_.exception.message
+    } finally {
+        Set-UIBusy -Busy $false
     }
 
-    $OutputTB.Text = "Saving results to $($script:ExportTXTPath)...`r`n"
-
-    try {
-    Set-Content -Path $script:ExportTXTPath -Value $TXTFormattedPaths -Encoding UTF8 -Confirm:$false -ErrorAction Stop
-    $OutputTB.AppendText("Done!`r`n")
-    } catch {
-    $OutputTB.AppendText("Failed - $($_.exception.message)`r`n")
-    }
-    $OutputTB.AppendText("Saving results to $($script:ExportJSONPath)...`r`n")
-    try {
-    $JSONData = $ExportJSONObject | ConvertTo-Json -Depth 10
-    Set-Content -Path $script:ExportJSONPath -Value $JSONData -Encoding UTF8 -Confirm:$false -ErrorAction Stop
-    $OutputTB.AppendText("Done!`r`n")
-    } catch {
-    $OutputTB.AppendText("Failed - $($_.exception.message)`r`n")
-    }
-    $MTExportButton.Hide()
-    $MTTXTLink.Show()
-    $MTJSONLink.Show()
-    } else {
-    $OutputTB.Text = "Fine"
-    }
 })
 
 $MTTXTLink.add_linkclicked({
 try{
-Start-Process -FilePath $script:ExportTXTPath -ErrorAction Stop
+Start-Process -FilePath $AppState.ExportPaths.Txt -ErrorAction Stop
+$MTTXTLink.LinkVisited = $true
 } catch {
 Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
 }
@@ -349,7 +360,8 @@ Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
 
 $MTJSONLink.add_linkclicked({
 try{
-Start-Process -FilePath $script:ExportJSONPath -ErrorAction Stop
+Start-Process -FilePath $AppState.ExportPaths.Json -ErrorAction Stop
+$MTJSONLink.LinkVisited = $true
 } catch {
 Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
 }
