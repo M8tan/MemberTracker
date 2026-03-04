@@ -5,13 +5,27 @@ param(
 [string]$ErrorMessage,
 [string]$ErrorType
 )
-([System.Windows.Forms.MessageBox]::Show("Encountered an error -`r`n$($ErrorMessage)", "Oops!", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error))
-break
+([System.Windows.Forms.MessageBox]::Show("Encountered an error -`r`n$($ErrorMessage)", "Oops!", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)) | Out-Null
 }
+
+function Test-Startup(){
+    try{
+        Import-Module activedirectory -ErrorAction Stop
+    } catch {
+        throw "Can't load AD module: $($_.exception.message)"
+    }
+    try{
+        return (Get-ADForest -ErrorAction Stop).Domains 
+    } catch {
+        throw "Can't get domains: $($_.exception.message)"
+    }
+}
+
 try{
-Import-Module activedirectory -ErrorAction Stop
+    $Domains = Test-Startup
 } catch {
-Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
+    Display-Error -ErrorMessage $_.exception.message
+    return
 }
 
 $AppState = [pscustomobject]@{
@@ -34,11 +48,7 @@ $FolderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $FolderDialog.Description = "Choose where to save the results"
 $FolderDialog.ShowNewFolderButton = $true
 
-try{
-$Domains = (Get-ADForest -ErrorAction Stop).Domains 
-} catch {
-Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
-}
+
 $OrderedDomains = ""
 foreach($Domain in $Domains){ 
 $OrderedDomains += "$($Domain)`r`n"
@@ -92,7 +102,7 @@ $MTExportButton.Text = "Export"
 $MTExportButton.Location = New-Object System.Drawing.Point(320,65)
 $MTExportButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
 $MTExportButton.Width = 100
-$MTExportButton.Enabled = $Found
+$MTExportButton.Enabled = $false
 $Tooltip.SetToolTip($MTExportButton, "Searches for the user inside of the group")
 
 $MTTXTLink = New-Object System.Windows.Forms.LinkLabel
