@@ -99,7 +99,7 @@ function Get-ADUserGroupPath {
         [Parameter(Mandatory)]
         [Array]$Domains
     )
-
+    $DCCache = @{}
     function FindPathRecursive {
     param($GroupDN, $UserDN, $CheckedGroups)
 
@@ -113,8 +113,21 @@ function Get-ADUserGroupPath {
     $DomainFQDN = ($DomainDN -replace 'DC=', '') -replace ',', '.'
 
     try {
-        $DC = (Get-ADDomainController -DomainName $DomainFQDN -Discover).HostName[0]
-        $Group = Get-ADGroup -Identity $GroupDN -Server $DC -Properties Members, Name
+        if (-not $DCCache.ContainsKey($DomainFQDN)){
+            try{
+                $DCCache[$DomainFQDN] = (Get-ADDomainController -DomainName $DomainFQDN -Discover).HostName[0]
+            } catch {
+                return @()
+            }
+            }
+            $DC = $DCCache[$DomainFQDN]
+            try{
+            $Group = Get-ADGroup -Identity $GroupDN -Server $DC -Properties members, name
+            } catch {
+            return @()
+            }
+        #$DC = (Get-ADDomainController -DomainName $DomainFQDN -Discover).HostName[0]
+        #$Group = Get-ADGroup -Identity $GroupDN -Server $DC -Properties Members, Name
     } catch { return @() }
 
     foreach ($MemberDN in $Group.Members) {
@@ -435,7 +448,7 @@ $MTExportButton.add_click({
     $OutputTB.Clear()
 
     try{
-        if($FolderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){return}
+        if($FolderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){$OutputTB.Text = "Ok!";return}
         $ExportDir = $FolderDialog.SelectedPath
         $Result = Export-Memberships -State $AppState -ExportDir $ExportDir -Txt -Json -ErrorAction Stop
         $AppState.ExportPaths.Txt = $Result.Txt
