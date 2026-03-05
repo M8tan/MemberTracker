@@ -146,19 +146,31 @@ function Export-Memberships{
     [cmdletbinding()]
     param(
         [parameter(mandatory)][pscustomobject]$State,
-        [parameter(mandatory)][string]$ExportDir
+        [parameter(mandatory)][string]$ExportDir,
+        [switch]$Txt,
+        [switch]$Json
     )
     if (-not $State.Paths -or $State.Paths.count -eq 0){
         throw "No paths to export"
     }
+    if(-not $Txt -and -not $Json){throw "No format specified"}
+    if(-not (Test-Path -Path $ExportDir -PathType Container)){throw "Export directory not found - $($ExportDir)"}
     $TimeStamp = ((Get-Date).ToString("HHmmssddMMyyyy"))
     $Basename = "{0}_{1}_{2}" -f $State.User.SamAccountName, $State.Group.SamAccountName, $TimeStamp
+    $TxtPath = $null
+    $JsonPath = $null
+    if($Txt){
+    try{
     $TxtPath = Join-Path $ExportDir "$($Basename).txt"
-    $JsonPath = Join-Path $ExportDir "$($Basename).json"
     $TxtContent = foreach ($Path in $State.Paths){
         ($Path -join " → ") + " → $($State.User.cn)" 
     }
     Set-Content -Path $TxtPath -Value ($TxtContent -join "`r`n`r`n") -Encoding UTF8 -ErrorAction Stop
+    } catch {throw "Failed to save TXT file - $($_.exception.message)"}
+    }
+    if($Json){
+    try {
+    $JsonPath = Join-Path $ExportDir "$($Basename).json"
     $JsonContent = [pscustomobject]@{
         User = $State.User.SamAccountName
         Group = $State.Group.SamAccountName
@@ -167,6 +179,9 @@ function Export-Memberships{
         Paths = $State.Paths
     }
     $JsonContent | ConvertTo-Json -Depth 10 | Set-Content -Path $JsonPath -Encoding UTF8 -ErrorAction Stop
+    } catch {throw "Failed to save TXT file - $($_.exception.message)"}
+    }
+    
     return @{
         Txt = $TxtPath
         Json = $JsonPath
@@ -216,7 +231,7 @@ function Run-CLI{
                 Paths = $Paths
             }
 
-            $Result = Export-Memberships -State $State -ExportDir $ExportDir
+            $Result = Export-Memberships -State $State -ExportDir $ExportDir -Txt:$Txt -Json:$Json
 
             if ($Txt) {
                 Write-Host "TXT exported: $($Result.Txt)"
@@ -230,7 +245,7 @@ function Run-CLI{
 
     }
     catch {
-        Write-Error $_
+        Write-Error $_.exception.message
     }
 }
 
@@ -425,7 +440,7 @@ $MTExportButton.add_click({
     try{
         if($FolderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){return}
         $ExportDir = $FolderDialog.SelectedPath
-        $Result = Export-Memberships -State $AppState -ExportDir $ExportDir
+        $Result = Export-Memberships -State $AppState -ExportDir $ExportDir -ErrorAction Stop
         $AppState.ExportPaths.Txt = $Result.Txt
         $AppState.ExportPaths.Json = $Result.Json
         $OutputTB.AppendText("Files saved successfully`r`n")
