@@ -5,8 +5,11 @@
     [switch]$Txt,
     [switch]$Json
 )
+$IsCliMode = $PSBoundParameters.Count -gt 0 #$PSBoundParameters.ContainsKey("User") -or $PSBoundParameters.ContainsKey("Group")
+if(-not $IsCliMode){
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+}
 function Display-Error{
 param(
 [string]$ErrorMessage,
@@ -179,7 +182,7 @@ function Export-Memberships{
         Paths = $State.Paths
     }
     $JsonContent | ConvertTo-Json -Depth 10 | Set-Content -Path $JsonPath -Encoding UTF8 -ErrorAction Stop
-    } catch {throw "Failed to save TXT file - $($_.exception.message)"}
+    } catch {throw "Failed to save JSON file - $($_.exception.message)"}
     }
     
     return @{
@@ -213,9 +216,7 @@ function Run-CLI{
             return
         }
 
-        Write-Host ""
-        Write-Host "User is a member via $($Paths.Count) path(s):"
-        Write-Host ""
+        Write-Host "`nUser is a member via $($Paths.Count) path(s):`n"
 
         $i = 1
         foreach ($Path in $Paths) {
@@ -249,14 +250,10 @@ function Run-CLI{
     }
 }
 
-
-
-$IsCliMode = $PSBoundParameters.ContainsKey("User") -or $PSBoundParameters.ContainsKey("Group")
 if ($IsCliMode) {
     Run-CLI -User $User -Group $Group -ExportDir $ExportDir -Json:$Json -Txt:$Txt
     return
 }
-
 
 $Tooltip = new-object System.Windows.Forms.ToolTip
 $Tooltip.AutoPopDelay = 5000
@@ -440,7 +437,7 @@ $MTExportButton.add_click({
     try{
         if($FolderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){return}
         $ExportDir = $FolderDialog.SelectedPath
-        $Result = Export-Memberships -State $AppState -ExportDir $ExportDir -ErrorAction Stop
+        $Result = Export-Memberships -State $AppState -ExportDir $ExportDir -Txt -Json -ErrorAction Stop
         $AppState.ExportPaths.Txt = $Result.Txt
         $AppState.ExportPaths.Json = $Result.Json
         $OutputTB.AppendText("Files saved successfully`r`n")
