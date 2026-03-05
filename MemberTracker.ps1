@@ -1,4 +1,11 @@
-﻿Add-Type -AssemblyName System.Windows.Forms
+﻿param(
+    [string]$User,
+    [string]$Group,
+    [string]$ExportDir,
+    [switch]$Txt,
+    [switch]$Json
+)
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 function Display-Error{
 param(
@@ -21,13 +28,6 @@ function Test-Startup(){
     }
 }
 
-try{
-    $Domains = Test-Startup
-} catch {
-    Display-Error -ErrorMessage $_.exception.message
-    return
-}
-
 $AppState = [pscustomobject]@{
     User = $null
     Group = $null
@@ -37,6 +37,211 @@ $AppState = [pscustomobject]@{
         Json = $null
     }
 }
+
+try{
+    $Domains = Test-Startup
+} catch {
+    Display-Error -ErrorMessage $_.exception.message
+    return
+}
+
+function Validate-User{
+    [CmdletBinding()]
+    param(
+    [string]$Username,
+    [string[]]$Domains
+    )
+
+    $UserFullObject = $null
+    
+    foreach($Domain in $Domains){
+    
+    try {
+        $UserFullObject = Get-ADUser -Identity $Username -Server $Domain -Properties * -ErrorAction Stop
+        if ($UserFullObject){return $UserFullObject}
+    } catch {}
+    }
+    if (-not $UserFullObject){
+        throw "User $($Username) not found"
+    }  
+}
+
+function Validate-Group{
+    [CmdletBinding()]
+    param(
+    [string]$Groupname,
+    [string[]]$Domains
+    )
+
+    $GroupFullObject = $null
+    foreach($Domain in $Domains){
+    try {
+        $GroupFullObject = Get-ADGroup -Identity $Groupname -Properties * -Server $Domain -ErrorAction Stop
+        if ($GroupFullObject){
+        return $GroupFullObject
+        }
+    } catch {}
+    }
+    if (-not $GroupFullObject){
+        throw "Group $($Groupname) not found"
+    } 
+}
+
+function Get-ADUserGroupPath {
+    param(
+        [Parameter(Mandatory)]
+        [string]$UserDN,
+        [Parameter(Mandatory)]
+        [string]$GroupDN,
+        [Parameter(Mandatory)]
+        [Array]$Domains
+    )
+
+    function FindPathRecursive {
+    param($GroupDN, $UserDN, $CheckedGroups)
+
+    if ($CheckedGroups -contains $GroupDN) { return @() }
+    $CheckedGroups += $GroupDN
+
+    $AllPaths = @()
+
+    
+    $DomainDN = ($GroupDN -split '(?<!\\),DC=')[1..99] -join ',DC='
+    $DomainFQDN = ($DomainDN -replace 'DC=', '') -replace ',', '.'
+
+    try {
+        $DC = (Get-ADDomainController -DomainName $DomainFQDN -Discover).HostName[0]
+        $Group = Get-ADGroup -Identity $GroupDN -Server $DC -Properties Members, Name
+    } catch { return @() }
+
+    foreach ($MemberDN in $Group.Members) {
+
+        try {
+            $MemberObj = Get-ADObject -Identity $MemberDN -Server $DC -Properties objectClass, Name
+        } catch { continue }
+
+        # Direct membership
+        if ($MemberObj.objectClass -eq 'user' -and $MemberObj.DistinguishedName -eq $UserDN) {
+            $AllPaths += ,@($Group.Name)
+        }
+
+        # Nested group
+        elseif ($MemberObj.objectClass -eq 'group') {
+            $NestedPaths = FindPathRecursive -GroupDN $MemberDN -UserDN $UserDN -CheckedGroups $CheckedGroups
+            
+            foreach ($Path in $NestedPaths) {
+                $AllPaths += ,(@($Group.Name) + $Path)
+            }
+        }
+    }
+
+    return $AllPaths
+}
+
+
+    return FindPathRecursive -GroupDN $GroupDN -UserDN $UserDN -CheckedGroups @()
+}
+
+function Export-Memberships{
+    [cmdletbinding()]
+    param(
+        [parameter(mandatory)][pscustomobject]$State,
+        [parameter(mandatory)][string]$ExportDir
+    )
+    if (-not $State.Paths -or $State.Paths.count -eq 0){
+        throw "No paths to export"
+    }
+    $TimeStamp = ((Get-Date).ToString("HHmmssddMMyyyy"))
+    $Basename = "{0}_{1}_{2}" -f $State.User.SamAccountName, $State.Group.SamAccountName, $TimeStamp
+    $TxtPath = Join-Path $ExportDir "$($Basename).txt"
+    $JsonPath = Join-Path $ExportDir "$($Basename).json"
+    $TxtContent = foreach ($Path in $State.Paths){
+        ($Path -join " → ") + " → $($State.User.cn)" 
+    }
+    Set-Content -Path $TxtPath -Value ($TxtContent -join "`r`n`r`n") -Encoding UTF8 -ErrorAction Stop
+    $JsonContent = [pscustomobject]@{
+        User = $State.User.SamAccountName
+        Group = $State.Group.SamAccountName
+        ExportTime = $TimeStamp
+        PathCount = $State.Paths.count
+        Paths = $State.Paths
+    }
+    $JsonContent | ConvertTo-Json -Depth 10 | Set-Content -Path $JsonPath -Encoding UTF8 -ErrorAction Stop
+    return @{
+        Txt = $TxtPath
+        Json = $JsonPath
+    }
+}
+
+function Run-CLI{
+    param(
+        [string]$User,
+        [string]$Group,
+        [string]$ExportDir,
+        [switch]$Txt,
+        [switch]$Json
+    )
+    try{
+        if (-not $User){throw "User not specified"}
+        if (-not $Group){throw "Group not specified"}
+        if(($Txt -or $Json) -and -not $ExportDir){throw "Path not specified"}
+        $UserObj = Validate-User -Username $User -Domains $Domains
+        $GroupObj = Validate-Group -Groupname $Group -Domains $Domains
+
+        Write-Host "Found $($UserObj.Name) and $($GroupObj.Name)"
+        Write-Host "Searching membership paths..."
+
+        $Paths = Get-ADUserGroupPath -UserDN $UserObj.DistinguishedName -GroupDN $GroupObj.DistinguishedName -Domains $Domains
+
+        if ($Paths.Count -eq 0) {
+            Write-Host "User is not a member of the group."
+            return
+        }
+
+        Write-Host ""
+        Write-Host "User is a member via $($Paths.Count) path(s):"
+        Write-Host ""
+
+        $i = 1
+        foreach ($Path in $Paths) {
+            Write-Host "$i. $($Path -join ' → ') → $($UserObj.cn)"
+            $i++
+        }
+
+        if ($ExportDir) {
+            if(-not (Test-Path -Path $ExportDir -PathType Container)){throw "Export path does not exist"}
+            $State = [pscustomobject]@{
+                User = $UserObj
+                Group = $GroupObj
+                Paths = $Paths
+            }
+
+            $Result = Export-Memberships -State $State -ExportDir $ExportDir
+
+            if ($Txt) {
+                Write-Host "TXT exported: $($Result.Txt)"
+            }
+
+            if ($Json) {
+                Write-Host "JSON exported: $($Result.Json)"
+            }
+
+        }
+
+    }
+    catch {
+        Write-Error $_
+    }
+}
+
+
+
+$IsCliMode = $PSBoundParameters.ContainsKey("User") -or $PSBoundParameters.ContainsKey("Group")
+if ($IsCliMode) {
+    Run-CLI -User $User -Group $Group -ExportDir $ExportDir -Json:$Json -Txt:$Txt
+    return
+}
+
 
 $Tooltip = new-object System.Windows.Forms.ToolTip
 $Tooltip.AutoPopDelay = 5000
@@ -138,61 +343,6 @@ function Set-UIBusy{
     $MTButton.Enabled = -not $Busy
 }
 
-function Get-ADUserGroupPath {
-    param(
-        [Parameter(Mandatory)]
-        [string]$UserDN,
-        [Parameter(Mandatory)]
-        [string]$GroupDN,
-        [Parameter(Mandatory)]
-        [Array]$Domains
-    )
-
-    function FindPathRecursive {
-    param($GroupDN, $UserDN, $CheckedGroups)
-
-    if ($CheckedGroups -contains $GroupDN) { return @() }
-    $CheckedGroups += $GroupDN
-
-    $AllPaths = @()
-
-    
-    $DomainDN = ($GroupDN -split '(?<!\\),DC=')[1..99] -join ',DC='
-    $DomainFQDN = ($DomainDN -replace 'DC=', '') -replace ',', '.'
-
-    try {
-        $DC = (Get-ADDomainController -DomainName $DomainFQDN -Discover).HostName[0]
-        $Group = Get-ADGroup -Identity $GroupDN -Server $DC -Properties Members, Name
-    } catch { return @() }
-
-    foreach ($MemberDN in $Group.Members) {
-
-        try {
-            $MemberObj = Get-ADObject -Identity $MemberDN -Server $DC -Properties objectClass, Name
-        } catch { continue }
-
-        # Direct membership
-        if ($MemberObj.objectClass -eq 'user' -and $MemberObj.DistinguishedName -eq $UserDN) {
-            $AllPaths += ,@($Group.Name)
-        }
-
-        # Nested group
-        elseif ($MemberObj.objectClass -eq 'group') {
-            $NestedPaths = FindPathRecursive -GroupDN $MemberDN -UserDN $UserDN -CheckedGroups $CheckedGroups
-            
-            foreach ($Path in $NestedPaths) {
-                $AllPaths += ,(@($Group.Name) + $Path)
-            }
-        }
-    }
-
-    return $AllPaths
-}
-
-
-    return FindPathRecursive -GroupDN $GroupDN -UserDN $UserDN -CheckedGroups @()
-}
-
 
 
 $MTInfoButton.add_click({
@@ -212,47 +362,7 @@ Instructions:
 "@)
 })
 
-function Validate-User{
-    [CmdletBinding()]
-    param(
-    [string]$Username,
-    [string[]]$Domains
-    )
 
-    $UserFullObject = $null
-    
-    foreach($Domain in $Domains){
-    
-    try {
-        $UserFullObject = Get-ADUser -Identity $Username -Server $Domain -Properties * -ErrorAction Stop
-        if ($UserFullObject){return $UserFullObject}
-    } catch {}
-    }
-    if (-not $UserFullObject){
-        throw "User $($Username) not found"
-    }  
-}
-
-function Validate-Group{
-    [CmdletBinding()]
-    param(
-    [string]$Groupname,
-    [string[]]$Domains
-    )
-
-    $GroupFullObject = $null
-    foreach($Domain in $Domains){
-    try {
-        $GroupFullObject = Get-ADGroup -Identity $Groupname -Properties * -Server $Domain -ErrorAction Stop
-        if ($GroupFullObject){
-        return $GroupFullObject
-        }
-    } catch {}
-    }
-    if (-not $GroupFullObject){
-        throw "Group $($Groupname) not found"
-    } 
-}
 
 $MTButton.Add_Click({
 $MTTXTLink.LinkVisited = $false
@@ -306,36 +416,7 @@ Set-UIBusy -Busy $false
     
 })
 
-function Export-Memberships{
-    [cmdletbinding()]
-    param(
-        [parameter(mandatory)][pscustomobject]$State,
-        [parameter(mandatory)][string]$ExportDir
-    )
-    if (-not $State.Paths -or $State.Paths.count -eq 0){
-        throw "No paths to export"
-    }
-    $TimeStamp = ((Get-Date).ToString("HHmmssddMMyyyy"))
-    $Basename = "{0}_{1}_{2}" -f $State.User.SamAccountName, $State.Group.SamAccountName, $TimeStamp
-    $TxtPath = Join-Path $ExportDir "$($Basename).txt"
-    $JsonPath = Join-Path $ExportDir "$($Basename).json"
-    $TxtContent = foreach ($Path in $State.Paths){
-        ($Path -join " → ") + " → $($State.User.cn)" 
-    }
-    Set-Content -Path $TxtPath -Value ($TxtContent -join "`r`n`r`n") -Encoding UTF8 -ErrorAction Stop
-    $JsonContent = [pscustomobject]@{
-        User = $State.User.SamAccountName
-        Group = $State.Group.SamAccountName
-        ExportTime = $TimeStamp
-        PathCount = $State.Paths.count
-        Paths = $State.Paths
-    }
-    $JsonContent | ConvertTo-Json -Depth 10 | Set-Content -Path $JsonPath -Encoding UTF8 -ErrorAction Stop
-    return @{
-        Txt = $TxtPath
-        Json = $JsonPath
-    }
-}
+
 
 $MTExportButton.add_click({
     Set-UIBusy -Busy $true
