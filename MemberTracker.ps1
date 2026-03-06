@@ -20,12 +20,12 @@ param(
 
 function Test-Startup(){
     try{
-        Import-Module activedirectory -ErrorAction Stop
+        Import-Module activedirectory -ErrorAction Stop -WarningAction SilentlyContinue
     } catch {
         throw "Can't load AD module: $($_.exception.message)"
     }
     try{
-        return (Get-ADForest -ErrorAction Stop).Domains 
+        return (Get-ADForest -ErrorAction Stop -WarningAction SilentlyContinue).Domains 
     } catch {
         throw "Can't get domains: $($_.exception.message)"
     }
@@ -44,7 +44,11 @@ $AppState = [pscustomobject]@{
 try{
     $Domains = Test-Startup
 } catch {
-    Display-Error -ErrorMessage $_.exception.message
+    if ($IsCliMode){
+        Write-Error $_.exception.message
+    } else {
+        Display-Error -ErrorMessage $_.exception.message
+    }
     return
 }
 
