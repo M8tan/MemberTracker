@@ -337,21 +337,19 @@ $MTExportButton.Location = New-Object System.Drawing.Point(320,65)
 $MTExportButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
 $MTExportButton.Width = 100
 $MTExportButton.Enabled = $false
-$Tooltip.SetToolTip($MTExportButton, "Searches for the user inside of the group")
+$Tooltip.SetToolTip($MTExportButton, "Exports the results to TXT and JSON")
 
 $MTTXTLink = New-Object System.Windows.Forms.LinkLabel
 $MTTXTLink.Text = "TXT"
 $MTTXTLink.Location = New-Object System.Drawing.Point(320,65)
 $MTTXTLink.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
 $MTTXTLink.Width = 50
-$Tooltip.SetToolTip($MTTXTLink, "Searches for the user inside of the group")
 
 $MTJSONLink = New-Object System.Windows.Forms.LinkLabel
 $MTJSONLink.Text = "JSON"
 $MTJSONLink.Location = New-Object System.Drawing.Point(380,65)
 $MTJSONLink.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
 $MTJSONLink.Width = 50
-$Tooltip.SetToolTip($MTJSONLink, "Searches for the user inside of the group")
 
 $MTTXTLink.LinkVisited = $false
 $MTJSONLink.LinkVisited = $false
