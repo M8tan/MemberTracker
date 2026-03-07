@@ -19,12 +19,11 @@ In complex AD environments:
 
 This tool answers:
 
-> “How exactly is this user a member of this group?”
+> “Are they actually a group member?”
 
-And if not:
+And if so:
 
-> “Are they actually a member at all?”
-
+> “How exactly?”
 ---
 
 ## ✨ Features

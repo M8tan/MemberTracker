@@ -1,371 +1,1008 @@
-﻿Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-function Display-Error{
-param(
-[string]$ErrorMessage,
-[string]$ErrorType
+﻿param(
+
+    [string]$User,
+
+    [string]$Group,
+
+    [string]$ExportDir,
+
+    [switch]$Txt,
+
+    [switch]$Json
+
 )
-([System.Windows.Forms.MessageBox]::Show("Encountered an error -`r`n$($ErrorMessage)", "Oops!", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error))
-break
+
+$IsCliMode = $PSBoundParameters.Count -gt 0 #$PSBoundParameters.ContainsKey("User") -or $PSBoundParameters.ContainsKey("Group")
+
+if(-not $IsCliMode){
+
+Add-Type -AssemblyName System.Windows.Forms
+
+Add-Type -AssemblyName System.Drawing
+
 }
+
+function Display-Error{
+
+param(
+
+[string]$ErrorMessage,
+
+[string]$ErrorType
+
+)
+
+([System.Windows.Forms.MessageBox]::Show("Encountered an error -`r`n$($ErrorMessage)", "Oops!", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)) | Out-Null
+
+}
+
+ 
+
+function Test-Startup(){
+
+    try{
+
+        Import-Module activedirectory -ErrorAction Stop -WarningAction SilentlyContinue
+
+    } catch {
+
+        throw "Can't load AD module: $($_.exception.message)"
+
+    }
+
+    try{
+
+        return (Get-ADForest -ErrorAction Stop -WarningAction SilentlyContinue).Domains
+
+    } catch {
+
+        throw "Can't get domains: $($_.exception.message)"
+
+    }
+
+}
+
+ 
+
+$AppState = [pscustomobject]@{
+
+    User = $null
+
+    Group = $null
+
+    Paths = @()
+
+    ExportPaths = @{
+
+        Txt = $null
+
+        Json = $null
+
+    }
+
+}
+
+ 
+
 try{
-Import-Module activedirectory -ErrorAction Stop
+
+    $Domains = Test-Startup
+
 } catch {
-Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
-}
-$Tooltip = new-object System.Windows.Forms.ToolTip
-$Tooltip.AutoPopDelay = 5000
-$Tooltip.InitialDelay = 500
-$Tooltip.ReshowDelay = 200
-$Tooltip.ShowAlways = $true
 
-$FolderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$FolderDialog.Description = "Choose where to save the results"
-$FolderDialog.ShowNewFolderButton = $true
+    if ($IsCliMode){
 
-try{
-$Domains = (Get-ADForest -ErrorAction Stop).Domains 
-} catch {
-Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
-}
-$OrderedDomains = ""
-foreach($Domain in $Domains){ 
-$OrderedDomains += "$($Domain)`r`n"
+        Write-Error $_.exception.message
+
+    } else {
+
+        Display-Error -ErrorMessage $_.exception.message
+
+    }
+
+    return
+
 }
 
-$script:Found = $false
-function Update-Export(){
-if ($script:Found){
-$MTExportButton.Enabled = $true
-} else {
-$MTExportButton.Enabled = $false
-}
-}
+ 
 
-$MTForm = New-Object System.Windows.Forms.Form
-$MTForm.Text = "Member Tracker" # - current operator: $($env:USERNAME)
-$MTForm.Size = New-Object System.Drawing.Size(500,350)
-$MTForm.StartPosition = "CenterScreen"
+function Validate-User{
 
+    [CmdletBinding()]
 
-$UsernameLabel = New-Object System.Windows.Forms.Label
-$UsernameLabel.Text = "Username:"
-$UsernameLabel.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$UsernameLabel.Location = New-Object System.Drawing.Point(20,20)
-$UsernameLabel.AutoSize = $true
-
-$MTUserInput = New-Object System.Windows.Forms.TextBox
-$MTUserInput.Location = New-Object System.Drawing.Point(100,18)
-$MTUserInput.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTUserInput.Width = 100
-$Tooltip.SetToolTip($MTUserInput, "Enter the username here`r`nshould be the SamAccountName, like Jasonc")
-
-$GroupLabel = New-Object System.Windows.Forms.Label
-$GroupLabel.Text = "Group:"
-$GroupLabel.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$GroupLabel.Location = New-Object System.Drawing.Point(210,20)
-$GroupLabel.AutoSize = $true
-
-$MTGroupInput = New-Object System.Windows.Forms.TextBox
-$MTGroupInput.Location = New-Object System.Drawing.Point(265,18)
-$MTGroupInput.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTGroupInput.Width = 170
-$Tooltip.SetToolTip($MTGroupInput, "Enter the group name here`r`nshould be the SamAccountName, like Delivery")
-
-$MTInfoButton = New-Object System.Windows.Forms.Button
-$MTInfoButton.Text = "?"
-$MTInfoButton.Location = New-Object System.Drawing.Point(440,10)
-$MTInfoButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTInfoButton.Width = 20
-
-$MTButton = New-Object System.Windows.Forms.Button
-$MTButton.Text = "Search membership"
-$MTButton.Location = New-Object System.Drawing.Point(20,65)
-$MTButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTButton.Width = 200
-$Tooltip.SetToolTip($MTButton, "Searches for the user inside of the group")
-
-$MTExportButton = New-Object System.Windows.Forms.Button
-$MTExportButton.Text = "Export"
-$MTExportButton.Location = New-Object System.Drawing.Point(320,65)
-$MTExportButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTExportButton.Width = 100
-$MTExportButton.Enabled = $Found
-$Tooltip.SetToolTip($MTExportButton, "Searches for the user inside of the group")
-
-$MTTXTLink = New-Object System.Windows.Forms.LinkLabel
-$MTTXTLink.Text = "TXT"
-$MTTXTLink.Location = New-Object System.Drawing.Point(320,65)
-$MTTXTLink.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTTXTLink.Width = 50
-$Tooltip.SetToolTip($MTTXTLink, "Searches for the user inside of the group")
-
-$MTJSONLink = New-Object System.Windows.Forms.LinkLabel
-$MTJSONLink.Text = "JSON"
-$MTJSONLink.Location = New-Object System.Drawing.Point(380,65)
-$MTJSONLink.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
-$MTJSONLink.Width = 50
-$Tooltip.SetToolTip($MTJSONLink, "Searches for the user inside of the group")
-
-$MTTXTLink.Hide()
-$MTJSONLink.Hide()
-
-$OutputTB = New-Object System.Windows.Forms.TextBox
-$OutputTB.Location = New-Object System.Drawing.Point(20,100)
-$OutputTB.Size = New-Object System.Drawing.Size(440,180)
-$OutputTB.Multiline = $true
-$OutputTB.ScrollBars = "Vertical"
-$OutputTB.ReadOnly = $true
-$OutputTB.Font = New-Object System.Drawing.font("arial", 12,  [System.Drawing.FontStyle]::Bold)
-
-function Get-ADUserGroupPath {
     param(
-        [Parameter(Mandatory)]
-        [string]$UserSamAccountName,
-        [Parameter(Mandatory)]
-        [string]$GroupDN,
-        [Parameter(Mandatory)]
-        [Array]$Domains
+
+    [string]$Username,
+
+    [string[]]$Domains
+
     )
 
-    $User = $null
-    foreach ($Domain in $Domains) {
-        try {
-            $User = Get-ADUser -Identity $UserSamAccountName -Server $Domain -ErrorAction Stop
-            if ($User) { break }
-        } catch {}
+ 
+
+    $UserFullObject = $null
+
+   
+
+    foreach($Domain in $Domains){
+
+   
+
+    try {
+
+        $UserFullObject = Get-ADUser -Identity $Username -Server $Domain -Properties * -ErrorAction Stop
+
+        if ($UserFullObject){return $UserFullObject}
+
+    } catch {}
+
     }
-    if (-not $User) { return $null }
+
+    if (-not $UserFullObject){
+
+        throw "User $($Username) not found"
+
+    } 
+
+}
+
+ 
+
+function Validate-Group{
+
+    [CmdletBinding()]
+
+    param(
+
+    [string]$Groupname,
+
+    [string[]]$Domains
+
+    )
+
+ 
+
+    $GroupFullObject = $null
+
+    foreach($Domain in $Domains){
+
+    try {
+
+        $GroupFullObject = Get-ADGroup -Identity $Groupname -Properties * -Server $Domain -ErrorAction Stop
+
+        if ($GroupFullObject){
+
+        return $GroupFullObject
+
+        }
+
+    } catch {}
+
+    }
+
+    if (-not $GroupFullObject){
+
+        throw "Group $($Groupname) not found"
+
+    }
+
+}
+
+ 
+
+function Get-ADUserGroupPath {
+
+    param(
+
+        [Parameter(Mandatory)]
+
+        [string]$UserDN,
+
+        [Parameter(Mandatory)]
+
+        [string]$GroupDN,
+
+        [Parameter(Mandatory)]
+
+        [Array]$Domains
+
+    )
+
+    $DCCache = @{}
 
     function FindPathRecursive {
+
     param($GroupDN, $UserDN, $CheckedGroups)
 
+ 
+
     if ($CheckedGroups -contains $GroupDN) { return @() }
+
     $CheckedGroups += $GroupDN
+
+ 
 
     $AllPaths = @()
 
-    
+ 
+
+   
+
     $DomainDN = ($GroupDN -split '(?<!\\),DC=')[1..99] -join ',DC='
+
     $DomainFQDN = ($DomainDN -replace 'DC=', '') -replace ',', '.'
 
+ 
+
     try {
-        $DC = (Get-ADDomainController -DomainName $DomainFQDN -Discover).HostName[0]
-        $Group = Get-ADGroup -Identity $GroupDN -Server $DC -Properties Members, Name
+
+        if (-not $DCCache.ContainsKey($DomainFQDN)){
+
+            try{
+
+                $DCCache[$DomainFQDN] = (Get-ADDomainController -DomainName $DomainFQDN -Discover).HostName[0]
+
+            } catch {
+
+                return @()
+
+            }
+
+            }
+
+            $DC = $DCCache[$DomainFQDN]
+
+            try{
+
+            $Group = Get-ADGroup -Identity $GroupDN -Server $DC -Properties members, name
+
+            } catch {
+
+            return @()
+
+            }
+
+        #$DC = (Get-ADDomainController -DomainName $DomainFQDN -Discover).HostName[0]
+
+        #$Group = Get-ADGroup -Identity $GroupDN -Server $DC -Properties Members, Name
+
     } catch { return @() }
+
+ 
 
     foreach ($MemberDN in $Group.Members) {
 
+ 
+
         try {
+
             $MemberObj = Get-ADObject -Identity $MemberDN -Server $DC -Properties objectClass, Name
+
         } catch { continue }
 
+ 
+
         # Direct membership
+
         if ($MemberObj.objectClass -eq 'user' -and $MemberObj.DistinguishedName -eq $UserDN) {
+
             $AllPaths += ,@($Group.Name)
+
         }
+
+ 
 
         # Nested group
+
         elseif ($MemberObj.objectClass -eq 'group') {
+
             $NestedPaths = FindPathRecursive -GroupDN $MemberDN -UserDN $UserDN -CheckedGroups $CheckedGroups
-            
+
+           
+
             foreach ($Path in $NestedPaths) {
+
                 $AllPaths += ,(@($Group.Name) + $Path)
+
             }
+
         }
+
     }
+
+ 
 
     return $AllPaths
+
 }
 
+ 
 
-    return FindPathRecursive -GroupDN $GroupDN -UserDN $User.DistinguishedName -CheckedGroups @()
+ 
+
+    return FindPathRecursive -GroupDN $GroupDN -UserDN $UserDN -CheckedGroups @()
+
 }
 
+ 
 
+function Export-Memberships{
+
+    [cmdletbinding()]
+
+    param(
+
+        [parameter(mandatory)][pscustomobject]$State,
+
+        [parameter(mandatory)][string]$ExportDir,
+
+        [switch]$Txt,
+
+        [switch]$Json
+
+    )
+
+    if (-not $State.Paths -or $State.Paths.count -eq 0){
+
+        throw "No paths to export"
+
+    }
+
+    if(-not $Txt -and -not $Json){throw "No format specified"}
+
+    if(-not (Test-Path -Path $ExportDir -PathType Container)){throw "Export directory not found - $($ExportDir)"}
+
+    $TimeStamp = ((Get-Date).ToString("HHmmssddMMyyyy"))
+
+    $Basename = "{0}_{1}_{2}" -f $State.User.SamAccountName, $State.Group.SamAccountName, $TimeStamp
+
+    $TxtPath = $null
+
+    $JsonPath = $null
+
+    if($Txt){
+
+    try{
+
+    $TxtPath = Join-Path $ExportDir "$($Basename).txt"
+
+    $TxtContent = foreach ($Path in $State.Paths){
+
+        ($Path -join " → ") + " → $($State.User.cn)"
+
+    }
+
+    Set-Content -Path $TxtPath -Value ($TxtContent -join "`r`n`r`n") -Encoding UTF8 -ErrorAction Stop
+
+    } catch {throw "Failed to save TXT file - $($_.exception.message)"}
+
+    }
+
+    if($Json){
+
+    try {
+
+    $JsonPath = Join-Path $ExportDir "$($Basename).json"
+
+    $JsonContent = [pscustomobject]@{
+
+        User = $State.User.SamAccountName
+
+        Group = $State.Group.SamAccountName
+
+        ExportTime = $TimeStamp
+
+        PathCount = $State.Paths.count
+
+        Paths = $State.Paths
+
+    }
+
+    $JsonContent | ConvertTo-Json -Depth 10 | Set-Content -Path $JsonPath -Encoding UTF8 -ErrorAction Stop
+
+    } catch {throw "Failed to save JSON file - $($_.exception.message)"}
+
+    }
+
+   
+
+    return @{
+
+        Txt = $TxtPath
+
+        Json = $JsonPath
+
+    }
+
+}
+
+ 
+
+function Run-CLI{
+
+    param(
+
+        [string]$User,
+
+        [string]$Group,
+
+        [string]$ExportDir,
+
+        [switch]$Txt,
+
+        [switch]$Json
+
+    )
+
+    try{
+
+        if (-not $User){throw "User not specified"}
+
+        if (-not $Group){throw "Group not specified"}
+
+        if(($Txt -or $Json) -and -not $ExportDir){throw "Path not specified"}
+
+        $UserObj = Validate-User -Username $User -Domains $Domains
+
+        $GroupObj = Validate-Group -Groupname $Group -Domains $Domains
+
+ 
+
+        Write-Host "Found $($UserObj.Name) and $($GroupObj.Name)"
+
+        Write-Host "Searching membership paths..."
+
+ 
+
+        $Paths = Get-ADUserGroupPath -UserDN $UserObj.DistinguishedName -GroupDN $GroupObj.DistinguishedName -Domains $Domains
+
+ 
+
+        if ($Paths.Count -eq 0) {
+
+            Write-Host "User is not a member of the group."
+
+            return
+
+        }
+
+ 
+
+        Write-Host "`nUser is a member via $($Paths.Count) path(s):`n"
+
+ 
+
+        $i = 1
+
+        foreach ($Path in $Paths) {
+
+            Write-Host "$i. $($Path -join ' → ') → $($UserObj.cn)"
+
+            $i++
+
+        }
+
+ 
+
+        if ($ExportDir) {
+
+            if(-not (Test-Path -Path $ExportDir -PathType Container)){throw "Export path does not exist"}
+
+            $State = [pscustomobject]@{
+
+                User = $UserObj
+
+                Group = $GroupObj
+
+                Paths = $Paths
+
+            }
+
+ 
+
+            $Result = Export-Memberships -State $State -ExportDir $ExportDir -Txt:$Txt -Json:$Json
+
+ 
+
+            if ($Txt) {
+
+                Write-Host "TXT exported: $($Result.Txt)"
+
+            }
+
+ 
+
+            if ($Json) {
+
+                Write-Host "JSON exported: $($Result.Json)"
+
+            }
+
+ 
+
+        }
+
+ 
+
+    }
+
+    catch {
+
+        Write-Error $_.exception.message
+
+    }
+
+}
+
+ 
+
+if ($IsCliMode) {
+
+    Run-CLI -User $User -Group $Group -ExportDir $ExportDir -Json:$Json -Txt:$Txt
+
+    return
+
+}
+
+ 
+
+$Tooltip = new-object System.Windows.Forms.ToolTip
+
+$Tooltip.AutoPopDelay = 5000
+
+$Tooltip.InitialDelay = 500
+
+$Tooltip.ReshowDelay = 200
+
+$Tooltip.ShowAlways = $true
+
+ 
+
+$FolderDialog = New-Object System.Windows.Forms.FolderBrowserDialog
+
+$FolderDialog.Description = "Choose where to save the results"
+
+$FolderDialog.ShowNewFolderButton = $true
+
+ 
+
+ 
+
+$OrderedDomains = ""
+
+foreach($Domain in $Domains){
+
+$OrderedDomains += "$($Domain)`r`n"
+
+}
+
+ 
+
+$MTForm = New-Object System.Windows.Forms.Form
+
+$MTForm.Text = "Member Tracker" # - current operator: $($env:USERNAME)
+
+$MTForm.Size = New-Object System.Drawing.Size(500,350)
+
+$MTForm.StartPosition = "CenterScreen"
+
+ 
+
+ 
+
+$UsernameLabel = New-Object System.Windows.Forms.Label
+
+$UsernameLabel.Text = "Username:"
+
+$UsernameLabel.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
+
+$UsernameLabel.Location = New-Object System.Drawing.Point(20,20)
+
+$UsernameLabel.AutoSize = $true
+
+ 
+
+$MTUserInput = New-Object System.Windows.Forms.TextBox
+
+$MTUserInput.Location = New-Object System.Drawing.Point(100,18)
+
+$MTUserInput.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
+
+$MTUserInput.Width = 100
+
+$Tooltip.SetToolTip($MTUserInput, "Enter the username here`r`nshould be the SamAccountName, like Jasonc")
+
+ 
+
+$GroupLabel = New-Object System.Windows.Forms.Label
+
+$GroupLabel.Text = "Group:"
+
+$GroupLabel.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
+
+$GroupLabel.Location = New-Object System.Drawing.Point(210,20)
+
+$GroupLabel.AutoSize = $true
+
+ 
+
+$MTGroupInput = New-Object System.Windows.Forms.TextBox
+
+$MTGroupInput.Location = New-Object System.Drawing.Point(265,18)
+
+$MTGroupInput.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
+
+$MTGroupInput.Width = 170
+
+$Tooltip.SetToolTip($MTGroupInput, "Enter the group name here`r`nshould be the SamAccountName, like Delivery")
+
+ 
+
+$MTInfoButton = New-Object System.Windows.Forms.Button
+
+$MTInfoButton.Text = "?"
+
+$MTInfoButton.Location = New-Object System.Drawing.Point(440,10)
+
+$MTInfoButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
+
+$MTInfoButton.Width = 20
+
+ 
+
+$MTButton = New-Object System.Windows.Forms.Button
+
+$MTButton.Text = "Search membership"
+
+$MTButton.Location = New-Object System.Drawing.Point(20,65)
+
+$MTButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
+
+$MTButton.Width = 200
+
+$Tooltip.SetToolTip($MTButton, "Searches for the user inside of the group")
+
+ 
+
+$MTExportButton = New-Object System.Windows.Forms.Button
+
+$MTExportButton.Text = "Export"
+
+$MTExportButton.Location = New-Object System.Drawing.Point(320,65)
+
+$MTExportButton.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
+
+$MTExportButton.Width = 100
+
+$MTExportButton.Enabled = $false
+
+$Tooltip.SetToolTip($MTExportButton, "Searches for the user inside of the group")
+
+ 
+
+$MTTXTLink = New-Object System.Windows.Forms.LinkLabel
+
+$MTTXTLink.Text = "TXT"
+
+$MTTXTLink.Location = New-Object System.Drawing.Point(320,65)
+
+$MTTXTLink.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
+
+$MTTXTLink.Width = 50
+
+$Tooltip.SetToolTip($MTTXTLink, "Searches for the user inside of the group")
+
+ 
+
+$MTJSONLink = New-Object System.Windows.Forms.LinkLabel
+
+$MTJSONLink.Text = "JSON"
+
+$MTJSONLink.Location = New-Object System.Drawing.Point(380,65)
+
+$MTJSONLink.Font = New-Object System.Drawing.font("arial", 10,  [System.Drawing.FontStyle]::Bold)
+
+$MTJSONLink.Width = 50
+
+$Tooltip.SetToolTip($MTJSONLink, "Searches for the user inside of the group")
+
+ 
+
+$MTTXTLink.LinkVisited = $false
+
+$MTJSONLink.LinkVisited = $false
+
+$MTTXTLink.Hide()
+
+$MTJSONLink.Hide()
+
+ 
+
+$OutputTB = New-Object System.Windows.Forms.TextBox
+
+$OutputTB.Location = New-Object System.Drawing.Point(20,100)
+
+$OutputTB.Size = New-Object System.Drawing.Size(440,180)
+
+$OutputTB.Multiline = $true
+
+$OutputTB.ScrollBars = "Vertical"
+
+$OutputTB.ReadOnly = $true
+
+$OutputTB.Font = New-Object System.Drawing.font("arial", 12,  [System.Drawing.FontStyle]::Bold)
+
+ 
+
+function Set-UIBusy{
+
+    param([bool]$Busy)
+
+    $MTInfoButton.Enabled = -not $Busy
+
+    $MTButton.Enabled = -not $Busy
+
+}
+
+ 
+
+ 
+
+ 
 
 $MTInfoButton.add_click({
+
+$MTTXTLink.LinkVisited = $false
+
+$MTJSONLink.LinkVisited = $false
+
 $MTTXTLink.Hide()
+
 $MTJSONLink.Hide()
+
 $MTExportButton.Show()
-$script:Found = $false
-Update-Export
+
+$MTExportButton.Enabled = $AppState.Paths.count -gt 0
+
 $OutputTB.Clear()
+
 $OutputTB.AppendText(@"
+
 Instructions:
+
 1. Enter the SAMAccountName of the user
+
 2. Enter the name of the group
+
 3. Press the button
+
 4. It will show every membership path in which the user is included in the group
+
 "@)
+
 })
+
+ 
+
+ 
+
+ 
 
 $MTButton.Add_Click({
+
+$MTTXTLink.LinkVisited = $false
+
+$MTJSONLink.LinkVisited = $false
+
 $MTTXTLink.Hide()
+
 $MTJSONLink.Hide()
+
 $MTExportButton.Show()
-$script:Found = $false
-Update-Export
-$MTButton.Enabled = $false
-    $OutputTB.Text = ""
-    $RawUsername = $MTUserInput.Text.Trim()
-    $RawGroupName = $MTGroupInput.Text.Trim()
-    if ([string]::IsNullOrWhiteSpace($RawUsername)) {
-        $OutputTB.AppendText("Username not specified :)`r`n")
-        $MTButton.Enabled = $true
-        return
+
+ 
+
+$MTExportButton.Enabled = $AppState.Paths.count -gt 0
+
+Set-UIBusy -Busy $true
+
+$OutputTB.Clear()
+
+try{
+
+$AppState.Paths = @()
+
+$AppState.User = $null
+
+$AppState.Group = $null
+
+$RawUsername = $MTUserInput.Text.Trim()
+
+$RawGroupName = $MTGroupInput.Text.Trim()
+
+if ([string]::IsNullOrWhiteSpace($RawUsername)) {
+
+        throw "Username not specified"
+
     }
+
     if ([string]::IsNullOrWhiteSpace($RawGroupName)) {
-        $OutputTB.AppendText("Group not specified :)`r`n")
-        $MTButton.Enabled = $true
-        return
-    }
-    
-    $UserFullObject = $null
-    
-    foreach($Domain in $Domains){
-    
-    try {
-        $UserFullObject = Get-ADUser -Identity $RawUsername -Server $Domain -Properties * -ErrorAction Stop
-        if ($UserFullObject){
-        $OutputTB.AppendText("Found $($UserFullObject.cn) - $($UserFullObject.title) in: $($Domain) `r`n")
-        break
-        }
-    } catch {
-        
-    }
-    }
-    if (-not $UserFullObject){
-    $OutputTB.Text = "No user named $($RawUsername) in all of: `r`n$($OrderedDomains) :( `r`n"
-    $MTButton.Enabled = $true
-    return
-    }
-    
-    $GroupFullObject = $null
-    
-    foreach($Domain in $Domains){
-    
-    try {
-        $GroupFullObject = Get-ADGroup -Identity $RawGroupName -Properties * -Server $Domain -ErrorAction Stop
-        if ($GroupFullObject){
-        $OutputTB.AppendText("Found $($GroupFullObject.cn) in: $($Domain) `r`n")
-        break
-        }
-    } catch {
-        
-    }
-    }
-    if (-not $GroupFullObject){
-    $OutputTB.Text = "No group named $($RawGroupName) in all of: `r`n$($OrderedDomains) :( `r`n"
-    $MTButton.Enabled = $true
-    return
-    }
-    $OutputTB.AppendText("`r`nSearching for group membership... `r`n")
-    $OutputTB.Clear()
-    $UserSam = $UserFullObject.SamAccountName
-    $GroupDN = $GroupFullObject.DistinguishedName
-    
-    $script:Paths = Get-ADUserGroupPath -UserSamAccountName $UserSam -GroupDN $GroupDN -Domains $Domains
-    $script:UsernameFE = $UserFullObject.SamAccountName
-    $script:GroupnameFE = $GroupFullObject.SamAccountName
 
-    if ($script:Paths -and $script:Paths.count -gt 0) {
+        throw "Group not specified"
+
+    }
+
+$User = Validate-User -Username $RawUsername -Domains $Domains -ErrorAction Stop
+
+$Group = Validate-Group -Groupname $RawGroupName -Domains $Domains -ErrorAction Stop
+
+$OutputTB.AppendText("Found $($User.name) and $($Group.name),`r`nSearching for group membership... `r`n")
+
+   
+
+    $AppState.User = $User
+
+    $AppState.Group = $Group
+
+    $AppState.Paths = Get-ADUserGroupPath -UserDN $User.DistinguishedName -GroupDN $Group.DistinguishedName -Domains $Domains
+
+ 
+
+   
+
+ 
+
+    if ($AppState.Paths.count -gt 0) {
+
         $SerialNum = 1
-        if ($script:Paths.count -eq 1) {$NumPresentation = "$($script:Paths.count) path:"} else {$NumPresentation = "$($script:Paths.count) paths:"} 
+
+        if ($AppState.Paths.count -eq 1) {$NumPresentation = "$($AppState.Paths.count) path:"} else {$NumPresentation = "$($AppState.Paths.count) paths:"}
+
         $OutputTB.Text = "User is a member via $($NumPresentation)`r`n`r`n"
-        foreach($Path in $script:Paths){
-            $OutputTB.AppendText($SerialNum.ToString() + ". " + ($Path -join " → ") + " → $($UserFullObject.cn)" + "`r`n`r`n")
+
+        foreach($Path in $AppState.Paths){
+
+            $OutputTB.AppendText($SerialNum.ToString() + ". " + ($Path -join " → ") + " → $($AppState.User.cn)" + "`r`n`r`n")
+
             $SerialNum++
+
         }
-        $script:Found = $true
-        Update-Export
+
     } else {
-        $OutputTB.Text = "User is NOT a member of the group."
+
+        $OutputTB.Text = "User is not a member of the group."
+
     }
-    $MTButton.Enabled = $true
+
+    $MTExportButton.Enabled = $AppState.Paths.count -gt 0
+
+} catch {
+
+$OutputTB.Text = $_.exception.message
+
+} finally {
+
+Set-UIBusy -Busy $false
+
+}   
 
     
-    
+
 })
+
+ 
+
+ 
+
+ 
 
 $MTExportButton.add_click({
-    $MTTXTLink.Hide()
-    $MTJSONLink.Hide()
-    $MTExportButton.Show()
-    $OutputTB.Text = ""
-    if($FolderDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){
-    $ExportDir = $FolderDialog.SelectedPath
-    $TimeStamp = ((Get-Date).ToString("HHmmssddMMyyyy"))
-    $ExportTXTFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$($TimeStamp).txt"
-    $script:ExportTXTPath = Join-Path $ExportDir $ExportTXTFileName
-    $ExportJSONFileName = "$($script:UsernameFE)_$($script:GroupnameFE)_$($TimeStamp).json"
-    $script:ExportJSONPath = Join-Path $ExportDir $ExportJSONFileName
-    $TXTFormattedPaths = ""
-    
-    $ExportJSONObject = [pscustomobject]@{
-        User = $script:UsernameFE
-        Group = $script:GroupnameFE
-        ExportTime = $TimeStamp
-        PathCount = if($script:Paths){$script:Paths.Count} else {0}
-        Paths = @()
-    }
-    
-    foreach ($Path in $script:Paths){
-    $TXTFormattedPaths += (($Path -join " → ") + " → $($script:UsernameFE)" + "`r`n`r`n")
-    $ExportJSONObject.Paths += ,$Path
+
+    Set-UIBusy -Busy $true
+
+    $OutputTB.Clear()
+
+ 
+
+    try{
+
+        if($FolderDialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){$OutputTB.Text = "Ok!";return}
+
+        $ExportDir = $FolderDialog.SelectedPath
+
+        $Result = Export-Memberships -State $AppState -ExportDir $ExportDir -Txt -Json -ErrorAction Stop
+
+        $AppState.ExportPaths.Txt = $Result.Txt
+
+        $AppState.ExportPaths.Json = $Result.Json
+
+        $OutputTB.AppendText("Files saved successfully`r`n")
+
+        $MTExportButton.Hide()
+
+        $MTTXTLink.Show()
+
+        $MTJSONLink.Show()
+
+    } catch {
+
+        $OutputTB.Text = $_.exception.message
+
+    } finally {
+
+        Set-UIBusy -Busy $false
+
     }
 
-    $OutputTB.Text = "Saving results to $($script:ExportTXTPath)...`r`n"
+ 
 
-    try {
-    Set-Content -Path $script:ExportTXTPath -Value $TXTFormattedPaths -Encoding UTF8 -Confirm:$false -ErrorAction Stop
-    $OutputTB.AppendText("Done!`r`n")
-    } catch {
-    $OutputTB.AppendText("Failed - $($_.exception.message)`r`n")
-    }
-    $OutputTB.AppendText("Saving results to $($script:ExportJSONPath)...`r`n")
-    try {
-    $JSONData = $ExportJSONObject | ConvertTo-Json -Depth 10
-    Set-Content -Path $script:ExportJSONPath -Value $JSONData -Encoding UTF8 -Confirm:$false -ErrorAction Stop
-    $OutputTB.AppendText("Done!`r`n")
-    } catch {
-    $OutputTB.AppendText("Failed - $($_.exception.message)`r`n")
-    }
-    $MTExportButton.Hide()
-    $MTTXTLink.Show()
-    $MTJSONLink.Show()
-    } else {
-    $OutputTB.Text = "Fine"
-    }
 })
+
+ 
 
 $MTTXTLink.add_linkclicked({
+
 try{
-Start-Process -FilePath $script:ExportTXTPath -ErrorAction Stop
+
+Start-Process -FilePath $AppState.ExportPaths.Txt -ErrorAction Stop
+
+$MTTXTLink.LinkVisited = $true
+
 } catch {
+
 Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
+
 }
+
 })
+
+ 
 
 $MTJSONLink.add_linkclicked({
+
 try{
-Start-Process -FilePath $script:ExportJSONPath -ErrorAction Stop
+
+Start-Process -FilePath $AppState.ExportPaths.Json -ErrorAction Stop
+
+$MTJSONLink.LinkVisited = $true
+
 } catch {
+
 Display-Error -ErrorMessage $($_.exception.message) -ErrorType ""
+
 }
+
 })
 
+ 
+
 $MTForm.Controls.AddRange(@(
+
     $UsernameLabel,
+
     $MTUserInput,
+
     $GroupLabel,
+
     $MTGroupInput,
+
     $MTInfoButton,
+
     $MTButton,
+
     $MTExportButton,
+
     $MTTXTLink,
+
     $MTJSONLink,
+
     $OutputTB
+
 ))
 
+ 
+
 [void]$MTForm.ShowDialog()
+
+
+ 
