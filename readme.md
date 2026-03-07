@@ -23,7 +23,7 @@ This tool answers:
 
 And if so:
 
-> “How exactly??”
+> “How exactly?”
 ---
 
 ## ✨ Features
@@ -77,7 +77,7 @@ User is a member via 2 paths:
 
 I encountered a case where a user kept receiving emails sent to a group they were supposedly not a member of.
 
-Manual inspection in ADUC didn’t reveal anything obvious, but *Get-ADPrincipalGroupMembership* showed that the user is, in fact, a member of the group.
+Manual inspection in AD didn’t reveal anything obvious, but *Get-ADPrincipalGroupMembership* showed that the user is, in fact, a member of the group.
 
 I realized we have a nested group issue, and from experience, manually checking such incidents is not that fun.
 
@@ -92,7 +92,7 @@ This project reflects my interest in:
 
 ---
 
-## 🧭 Future Improvements
+## 🧭 Possible Future Improvements
 
 - CLI version (non-GUI)
 - Performance optimization for large forests
