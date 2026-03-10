@@ -32,6 +32,7 @@ And if so:
 - 🔁 Recursive nested group resolution
 - 🛡 Loop-safe traversal (prevents infinite recursion)
 - 🖥 Simple Windows Forms GUI
+- 🚩 Optional CLI usage
 - 📄 Export results to:
   - TXT (human-readable)
   - JSON (machine-readable / automation-friendly)
