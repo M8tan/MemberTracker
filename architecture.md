@@ -12,4 +12,4 @@ MemberTracker works in three stages:
 3. **Visualization & Export**
    - GUI display of membership paths
    - CLI output for automation
-   - Export to JSON and TXT
+   - Possible export to JSON and TXT
