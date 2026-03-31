@@ -14,7 +14,7 @@ In complex AD environments:
 
 - Users may inherit access via nested groups
 - Groups may exist across multiple domains in a forest
-- Identifying *why* a user has access is often slow and manual
+- Manually identifying *why* a user has access is often slow and error-prone
 - ADUC does not clearly show full nested membership paths
 
 This tool answers:
